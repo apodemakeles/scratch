@@ -3,6 +3,10 @@ import chalk from "chalk";
 import fs from "fs";
 import readline from "readline";
 import { toJSONSchema, z } from "zod";
+import { exec } from "child_process";
+import { promisify } from "util";
+
+const execAsync = promisify(exec);
 
 const getUserInput = (): Promise<string> => {
   const rl = readline.createInterface({
@@ -32,6 +36,36 @@ const readFile = (args: { path: string }) => {
   return fs.readFileSync(args.path, "utf8");
 };
 
+const listFile = async (args: {path: string})=>{
+  try{
+    const { stdout } = await execAsync(
+      `npx tree-cli ${args.path} -I "node_modules|.git|dist|build|.next|.vscode|coverage|node_modules"`
+    );
+    return stdout;
+  }catch(error){
+    return `Directory not found: ${args.path}`;
+  }
+};
+
+const editFile = async (args: {
+  path: string;
+  old_string: string;
+  new_string: string;
+})=>{
+  const content = readFile({ path: args.path });
+  const updatedContent = content.replace(args.old_string, args.new_string);
+  fs.writeFileSync(args.path, updatedContent);
+};
+
+const createFile = async (args: { path: string; content: string }) => {
+  const dir = args.path.substring(0, args.path.lastIndexOf("/"));
+  if (dir) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  fs.writeFileSync(args.path, args.content);
+  return `File ${args.path} created successfully`;
+};
+
 const tool_defs = [
   {
     name: "read_file",
@@ -41,6 +75,33 @@ const tool_defs = [
     }),
     execute: readFile,
   },
+  {
+    name: "list_file",
+    description: "List files in a directory",
+    args: z.object({
+      path: z.string(),
+    }),
+    execute: listFile,
+  },
+  {
+    name: "create_file",
+    description: "Create a file in the local file system",
+    args: z.object({
+      path: z.string(),
+      content: z.string(),
+    }),
+    execute: createFile,
+  },
+  {
+    name: "edit_file",
+    description: "Edit a file in the local file system",
+    args: z.object({
+      path: z.string(),
+      old_string: z.string(),
+      new_string: z.string(),
+    }),
+    execute: editFile,
+  }
 ];
 
 const tools = tool_defs.map((item) => ({

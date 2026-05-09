@@ -1,7 +1,7 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.4.14/schema.json",
   "files": {
-    "experimentalScannerIgnores": ["**/node_modules/**", "**/.vscode/**", "**/.traces/**"]
+    "includes": ["**/*", "!!**/node_modules/**", "!!**/.vscode/**", "!!**/.traces/**"]
   },
   "formatter": {
     "enabled": true,

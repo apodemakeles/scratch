@@ -1,10 +1,10 @@
 import { Anthropic } from "@anthropic-ai/sdk";
 import chalk from "chalk";
+import { exec } from "child_process";
 import fs from "fs";
 import readline from "readline";
-import { toJSONSchema, z } from "zod";
-import { exec } from "child_process";
 import { promisify } from "util";
+import { toJSONSchema, z } from "zod";
 
 const execAsync = promisify(exec);
 
@@ -27,15 +27,14 @@ const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-const bash = async (args: {command: string})=>{
+const bash = async (args: { command: string }) => {
   try {
-    const { stdout, stderr } = await execAsync(args.command, {timeout: 30_000});
+    const { stdout, stderr } = await execAsync(args.command, { timeout: 30_000 });
     return `<stdout>\n${stdout}</stdout>\n<stderr>\n${stderr}</stderr>`;
   } catch (error: any) {
     return `<stdout>\n${error.stdout ?? ""}</stdout>\n<stderr>\n${error.stderr ?? error.message}</stderr>\n<exit_code>${error.code ?? 1}</exit_code>`;
   }
-
-}
+};
 
 const readFile = (args: { path: string }) => {
   const fileExists = fs.existsSync(args.path);
@@ -46,22 +45,18 @@ const readFile = (args: { path: string }) => {
   return fs.readFileSync(args.path, "utf8");
 };
 
-const listFile = async (args: {path: string})=>{
-  try{
+const listFile = async (args: { path: string }) => {
+  try {
     const { stdout } = await execAsync(
       `npx tree-cli ${args.path} -I "node_modules|.git|dist|build|.next|.vscode|coverage|node_modules"`
     );
     return stdout;
-  }catch(error){
+  } catch (error) {
     return `Directory not found: ${args.path}`;
   }
 };
 
-const editFile = async (args: {
-  path: string;
-  old_string: string;
-  new_string: string;
-})=>{
+const editFile = async (args: { path: string; old_string: string; new_string: string }) => {
   const content = readFile({ path: args.path });
   const updatedContent = content.replace(args.old_string, args.new_string);
   fs.writeFileSync(args.path, updatedContent);
@@ -75,7 +70,6 @@ const createFile = async (args: { path: string; content: string }) => {
   fs.writeFileSync(args.path, args.content);
   return `File ${args.path} created successfully`;
 };
-
 
 const tool_defs = [
   {
@@ -113,16 +107,18 @@ const tool_defs = [
     }),
     execute: editFile,
   },
-  // {
-  //   name: "bash",
-  //   description: "Execute a bash command on the user's local machine and return the combined stdout, stderr, and exit code.",
-  //   args: z.object({
-  //     command: z.string().describe(
-  //       "The bash command to execute. Must be non-interactive (no vim, top, or long-running watchers like `npm run dev`). Quote paths containing spaces."
-  //     )
-  //   }),
-  //   execute: bash,
-  // },
+  {
+    name: "bash",
+    description: ``,
+    args: z.object({
+      command: z
+        .string()
+        .describe(
+          "The bash command to execute. Must be non-interactive (no vim, top, or long-running watchers like `npm run dev`). Quote paths containing spaces."
+        ),
+    }),
+    execute: bash,
+  },
 ];
 
 const tools = tool_defs.map((item) => ({
@@ -147,9 +143,7 @@ const executeTool = async (tool_name: string, args: any) => {
 };
 
 const SYSTEM_PROMPT = `
-你是一个用来个人工作助手，会进行问题的回答，以及使用我提供的工具\n
-当你在每次决定调用我的工具之前，首先要对我说出你的思考过程是什么
-`;
+你是一个用来个人工作助手，会进行问题的回答，以及使用我提供的工具\n`;
 
 const run = async () => {
   console.log(chalk.cyanBright("Welcome to Amie!"));
@@ -157,7 +151,7 @@ const run = async () => {
   // Define a new array to store past messages
   const conversations: Anthropic.MessageParam[] = [];
   let processUserInput: boolean = true;
-
+  const maxTokens = 4096;
 
   while (true) {
     if (processUserInput) {
@@ -175,8 +169,9 @@ const run = async () => {
       model: "glm-5.1",
       system: SYSTEM_PROMPT,
       messages: conversations,
-      max_tokens: 4096,
+      max_tokens: maxTokens,
       tools: tools,
+      thinking: { type: "enabled", budget_tokens: 1024, display: "summarized" } as any,
     });
 
     // Iterate over each potential response in completion
@@ -185,6 +180,24 @@ const run = async () => {
         case "text": {
           conversations.push({ role: "assistant", content: message.text });
           console.log(chalk.blue(`Claude: ${message.text}`));
+          break;
+        }
+        case "thinking": {
+          // Keep thinking blocks out of the conversation context to avoid polluting future turns.
+          const thinkingText =
+            typeof (message as any).thinking === "string"
+              ? (message as any).thinking
+              : JSON.stringify(message);
+          console.log(chalk.gray(`Thinking: ${thinkingText}`));
+          break;
+        }
+        case "redacted_thinking": {
+          // Same rationale as "thinking": do not feed back into the model context.
+          const redacted =
+            typeof (message as any).data === "string"
+              ? (message as any).data
+              : "[redacted_thinking]";
+          console.log(chalk.gray(`Thinking (redacted): ${redacted}`));
           break;
         }
         case "tool_use": {

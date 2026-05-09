@@ -27,6 +27,16 @@ const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
+const bash = async (args: {command: string})=>{
+  try {
+    const { stdout, stderr } = await execAsync(args.command, {timeout: 30_000});
+    return `<stdout>\n${stdout}</stdout>\n<stderr>\n${stderr}</stderr>`;
+  } catch (error: any) {
+    return `<stdout>\n${error.stdout ?? ""}</stdout>\n<stderr>\n${error.stderr ?? error.message}</stderr>\n<exit_code>${error.code ?? 1}</exit_code>`;
+  }
+
+}
+
 const readFile = (args: { path: string }) => {
   const fileExists = fs.existsSync(args.path);
   if (!fileExists) {
@@ -66,6 +76,7 @@ const createFile = async (args: { path: string; content: string }) => {
   return `File ${args.path} created successfully`;
 };
 
+
 const tool_defs = [
   {
     name: "read_file",
@@ -101,7 +112,17 @@ const tool_defs = [
       new_string: z.string(),
     }),
     execute: editFile,
-  }
+  },
+  // {
+  //   name: "bash",
+  //   description: "Execute a bash command on the user's local machine and return the combined stdout, stderr, and exit code.",
+  //   args: z.object({
+  //     command: z.string().describe(
+  //       "The bash command to execute. Must be non-interactive (no vim, top, or long-running watchers like `npm run dev`). Quote paths containing spaces."
+  //     )
+  //   }),
+  //   execute: bash,
+  // },
 ];
 
 const tools = tool_defs.map((item) => ({
@@ -115,14 +136,20 @@ const tools = tool_defs.map((item) => ({
 
 console.log(JSON.stringify(tools, null, 2));
 
-const executeTool = (tool_name: string, args: any) => {
+const executeTool = async (tool_name: string, args: any) => {
   const tool = tool_defs.find((tool) => tool.name === tool_name);
   if (!tool) {
     return "Tool not found";
   }
   // Execute and validate that we have the right tools
-  return tool.execute(tool.args.parse(args));
+  const execute = tool.execute as (args: any) => any;
+  return await execute(tool.args.parse(args));
 };
+
+const SYSTEM_PROMPT = `
+你是一个用来个人工作助手，会进行问题的回答，以及使用我提供的工具\n
+当你在每次决定调用我的工具之前，首先要对我说出你的思考过程是什么
+`;
 
 const run = async () => {
   console.log(chalk.cyanBright("Welcome to Amie!"));
@@ -130,6 +157,7 @@ const run = async () => {
   // Define a new array to store past messages
   const conversations: Anthropic.MessageParam[] = [];
   let processUserInput: boolean = true;
+
 
   while (true) {
     if (processUserInput) {
@@ -145,6 +173,7 @@ const run = async () => {
 
     const completion = await client.messages.create({
       model: "glm-5.1",
+      system: SYSTEM_PROMPT,
       messages: conversations,
       max_tokens: 4096,
       tools: tools,
@@ -171,7 +200,7 @@ const run = async () => {
               },
             ],
           });
-          const tool_execution_result = executeTool(message.name, message.input);
+          const tool_execution_result = await executeTool(message.name, message.input);
           conversations.push({
             role: "user",
             content: [

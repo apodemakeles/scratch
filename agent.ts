@@ -130,8 +130,6 @@ const tools = tool_defs.map((item) => ({
   },
 }));
 
-console.log(JSON.stringify(tools, null, 2));
-
 const executeTool = async (tool_name: string, args: any) => {
   const tool = tool_defs.find((tool) => tool.name === tool_name);
   if (!tool) {
@@ -144,6 +142,29 @@ const executeTool = async (tool_name: string, args: any) => {
 
 const SYSTEM_PROMPT = `
 你是一个用来个人工作助手，会进行问题的回答，以及使用我提供的工具\n`;
+
+/** 与原先一致：不把 thinking 写入后续对话，只保留 text / tool_use。 */
+const toAssistantConversationContent = (
+  msg: Anthropic.Message
+): Anthropic.ContentBlockParam[] | string => {
+  const blocks = msg.content
+    .filter((b) => b.type === "text" || b.type === "tool_use")
+    .map((b) =>
+      b.type === "text"
+        ? { type: "text" as const, text: b.text }
+        : { type: "tool_use" as const, id: b.id, name: b.name, input: b.input }
+    );
+  if (blocks.length === 0) {
+    return "";
+  }
+  if (blocks.length === 1) {
+    const first = blocks[0];
+    if (first?.type === "text") {
+      return first.text;
+    }
+  }
+  return blocks;
+};
 
 const run = async () => {
   console.log(chalk.cyanBright("Welcome to Amie!"));
@@ -165,7 +186,7 @@ const run = async () => {
     // Reset processUserInput
     processUserInput = true;
 
-    const completion = await client.messages.create({
+    const stream = client.messages.stream({
       model: "glm-5.1",
       system: SYSTEM_PROMPT,
       messages: conversations,
@@ -174,65 +195,64 @@ const run = async () => {
       thinking: { type: "enabled", budget_tokens: 1024, display: "summarized" } as any,
     });
 
-    // Iterate over each potential response in completion
-    for (const message of completion.content) {
-      switch (message.type) {
-        case "text": {
-          conversations.push({ role: "assistant", content: message.text });
-          console.log(chalk.blue(`Claude: ${message.text}`));
-          break;
-        }
-        case "thinking": {
-          // Keep thinking blocks out of the conversation context to avoid polluting future turns.
-          const thinkingText =
-            typeof (message as any).thinking === "string"
-              ? (message as any).thinking
-              : JSON.stringify(message);
-          console.log(chalk.gray(`Thinking: ${thinkingText}`));
-          break;
-        }
-        case "redacted_thinking": {
-          // Same rationale as "thinking": do not feed back into the model context.
-          const redacted =
-            typeof (message as any).data === "string"
-              ? (message as any).data
-              : "[redacted_thinking]";
-          console.log(chalk.gray(`Thinking (redacted): ${redacted}`));
-          break;
-        }
-        case "tool_use": {
-          console.log(chalk.yellow(`tool: ${message.name}(${JSON.stringify(message.input)})`));
-          conversations.push({
-            role: "assistant",
-            content: [
-              {
-                id: message.id,
-                input: message.input,
-                name: message.name,
-                type: "tool_use",
-              },
-            ],
-          });
-          const tool_execution_result = await executeTool(message.name, message.input);
-          conversations.push({
-            role: "user",
-            content: [
-              {
-                type: "tool_result",
-                tool_use_id: message.id,
-                content: tool_execution_result,
-              },
-            ],
-          });
+    let wroteClaudePrefix = false;
+    let wroteThinkingPrefix = false;
 
-          // Set to skip
-          processUserInput = false;
-          break;
-        }
-        default: {
-          console.log("Unknown message type:", JSON.stringify(message));
-        }
+    stream.on("text", (delta) => {
+      if (!wroteClaudePrefix) {
+        process.stdout.write(chalk.blue("Claude: "));
+        wroteClaudePrefix = true;
       }
+      process.stdout.write(chalk.blue(delta));
+    });
+
+    stream.on("thinking", (delta) => {
+      if (!wroteThinkingPrefix) {
+        process.stdout.write(chalk.gray("\nThinking: "));
+        wroteThinkingPrefix = true;
+      }
+      process.stdout.write(chalk.gray(delta));
+    });
+
+    stream.on("contentBlock", (block) => {
+      if (block.type === "redacted_thinking") {
+        const redacted = typeof block.data === "string" ? block.data : "[redacted_thinking]";
+        process.stdout.write(chalk.gray(`Thinking (redacted): ${redacted}\n`));
+      }
+    });
+
+    stream.on("error", (err) => {
+      console.error(chalk.red(err.message));
+    });
+
+    try {
+      const msg = await stream.finalMessage();
+      if (wroteClaudePrefix || wroteThinkingPrefix) {
+        process.stdout.write("\n");
+      }
+
+      const assistantContent = toAssistantConversationContent(msg);
+      if (assistantContent !== "") {
+        conversations.push({ role: "assistant", content: assistantContent });
+      }
+
+      if (msg.stop_reason === "tool_use") {
+        const toolUses = msg.content.filter((b) => b.type === "tool_use");
+        const toolResultBlocks: Anthropic.ToolResultBlockParam[] = [];
+        for (const tu of toolUses) {
+          console.log(chalk.yellow(`tool: ${tu.name}(${JSON.stringify(tu.input)})`));
+          const tool_execution_result = await executeTool(tu.name, tu.input);
+          toolResultBlocks.push({
+            type: "tool_result",
+            tool_use_id: tu.id,
+            content: tool_execution_result,
+          });
+        }
+        conversations.push({ role: "user", content: toolResultBlocks });
+        processUserInput = false;
+      }
+    } catch (err) {
+      console.error(chalk.red(err instanceof Error ? err.message : String(err)));
     }
   }
 

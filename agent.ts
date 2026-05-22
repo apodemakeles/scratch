@@ -2,6 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import chalk from "chalk";
 import { anthropicClient } from "./lib/client.ts";
 import { toAssistantConversationContent } from "./lib/conversation.ts";
+import { printGoodbye, printStartupBanner } from "./lib/banner.ts";
 import { getUserInput } from "./lib/input.ts";
 import { buildSystemPrompt } from "./prompts/index.ts";
 import { apiTools, runTool } from "./tools/index.ts";
@@ -9,7 +10,7 @@ import { apiTools, runTool } from "./tools/index.ts";
 const systemPrompt = buildSystemPrompt();
 
 const run = async () => {
-  console.log(chalk.cyanBright("Welcome to Scratch!"));
+  printStartupBanner();
 
   const conversations: Anthropic.MessageParam[] = [];
   let processUserInput = true;
@@ -98,7 +99,7 @@ const run = async () => {
     }
   }
 
-  console.log("Exiting...");
+  printGoodbye();
 };
 
 run();

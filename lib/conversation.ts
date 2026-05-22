@@ -1,24 +1,36 @@
 import type Anthropic from "@anthropic-ai/sdk";
 
-/** 与原先一致：不把 thinking 写入后续对话，只保留 text / tool_use。 */
-export function toAssistantConversationContent(
-  msg: Anthropic.Message
-): Anthropic.ContentBlockParam[] | string {
-  const blocks = msg.content
-    .filter((b) => b.type === "text" || b.type === "tool_use")
-    .map((b) =>
-      b.type === "text"
-        ? { type: "text" as const, text: b.text }
-        : { type: "tool_use" as const, id: b.id, name: b.name, input: b.input }
-    );
-  if (blocks.length === 0) {
-    return "";
+function contentBlockToParam(block: Anthropic.ContentBlock): Anthropic.ContentBlockParam | null {
+  switch (block.type) {
+    case "text":
+      return { type: "text", text: block.text };
+    case "tool_use":
+      return { type: "tool_use", id: block.id, name: block.name, input: block.input };
+    case "thinking":
+      return { type: "thinking", thinking: block.thinking, signature: block.signature };
+    case "redacted_thinking":
+      return { type: "redacted_thinking", data: block.data };
+    default:
+      return null;
   }
+}
+
+/** 将 assistant 回复完整映射为 MessageParam（含 thinking / tool_use / text）。 */
+export function toAssistantMessageParam(msg: Anthropic.Message): Anthropic.MessageParam | null {
+  const blocks = msg.content
+    .map(contentBlockToParam)
+    .filter((b): b is Anthropic.ContentBlockParam => b !== null);
+
+  if (blocks.length === 0) {
+    return null;
+  }
+
   if (blocks.length === 1) {
     const first = blocks[0];
     if (first?.type === "text") {
-      return first.text;
+      return { role: "assistant", content: first.text };
     }
   }
-  return blocks;
+
+  return { role: "assistant", content: blocks };
 }

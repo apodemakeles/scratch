@@ -1,10 +1,11 @@
 # scratch
 
-一个自用的 **终端 Agent 练手项目**：基于 [Bun](https://bun.com) 与 [@anthropic-ai/sdk](https://www.npmjs.com/package/@anthropic-ai/sdk)，在命令行里与模型对话，并调用本地工具完成简单任务。代码结构刻意保持清晰，便于自己实验 prompt、工具与会话持久化。
+一个自用的 **终端 Agent 练手项目**：基于 [Bun](https://bun.com)、[@anthropic-ai/sdk](https://www.npmjs.com/package/@anthropic-ai/sdk) 与 **React + Ink**（与 Claude Code 同款终端 UI），在 TUI 中与模型对话，并调用本地工具完成简单任务。
 
 ## 功能
 
-- **流式对话**：终端实时输出助手「小喵」的回复与 Thinking 内容
+- **Ink 终端 UI**：上方聊天记录区展示 User /「小喵」/ Thinking / 工具调用；底部输入框发送消息
+- **流式对话**：实时更新助手回复与 Thinking 内容
 - **Extended Thinking**：启用模型的思考块，并写入会话记录
 - **工具调用**：模型可调用以下内置工具
   - `read_file` — 读取文件
@@ -18,7 +19,7 @@
   - 记录写入 `~/.scratch/projects/<项目slug>/<session-id>.jsonl`
   - 首行为 meta（系统提示词、工具定义、模型等），之后每行一条消息
   - 项目 slug 按 git 仓库根目录（或 cwd）编码，规则参考 Claude Code
-- **恢复会话**：`-r` / `--resume` 加载历史 system、tools、对话，并在终端回放聊天记录后继续聊
+- **恢复会话**：`-r` / `--resume` 加载历史对话，在聊天记录区展示后继续聊
 
 ## 环境要求
 
@@ -51,7 +52,17 @@ bun run start
 bun run dev
 ```
 
-启动后会显示 session-id 与会话文件路径。输入消息后回车发送；输入 `q` 或 `quit` 退出。
+启动后顶部显示 session-id 与会话文件路径；在底部输入框输入消息后 **Enter** 发送；输入 `q` 或 `quit` 退出。
+
+**快捷键**
+
+| 按键 | 作用 |
+|------|------|
+| Enter | 发送消息 |
+| `q` / `quit` | 退出 |
+| `Ctrl+C` | 退出 |
+| `↑` / `↓` | 滚动聊天记录 |
+| `PgUp` / `PgDn` | 翻页滚动 |
 
 **恢复已有会话**
 
@@ -61,7 +72,7 @@ bun run start -- -r <session-id>
 bun run start -- -r 550e8400-e29b-41d4-a716-446655440000
 ```
 
-恢复时会先打印 banner，再回放历史对话（不含 tool result 详情），然后可继续输入。
+历史消息会直接显示在聊天记录区（不含 tool result 正文详情）。
 
 **代码检查**
 
@@ -72,10 +83,12 @@ bun run check
 ## 项目结构（简要）
 
 ```
-agent.ts              # 主入口：对话循环、流式输出、工具调度
-lib/                  # 客户端、会话存储、历史回放、CLI 等
+ui/                   # React + Ink 终端 UI
+core/                 # 会话初始化、Agent 轮次、消息展示模型
+lib/                  # 客户端、会话存储、CLI 等
 prompts/              # 系统提示词构建
 tools/                # 工具定义与注册
+agent.ts              # 兼容入口（转发至 ui/main.tsx）
 ```
 
 ## 说明

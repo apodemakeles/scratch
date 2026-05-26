@@ -1,25 +1,29 @@
 {
   "name": "scratch",
-  "module": "agent.ts",
+  "module": "ui/main.tsx",
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "bun --hot ./agent.ts",
-    "start": "bun ./agent.ts",
+    "dev": "bun --hot ./ui/main.tsx",
+    "start": "bun ./ui/main.tsx",
     "format": "biome format --write .",
     "lint": "biome lint .",
     "check": "biome check --write ."
   },
   "devDependencies": {
     "@biomejs/biome": "^2.2.2",
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/react": "^19.2.15"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.1",
+    "@inkjs/ui": "^2.0.0",
     "chalk": "^5.6.2",
+    "ink": "^7.0.4",
+    "react": "^19.2.6",
     "tree-cli": "^0.6.7",
     "zod": "^4.4.3"
   }
